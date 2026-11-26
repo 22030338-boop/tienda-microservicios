@@ -4,7 +4,10 @@
 .env.*
 !.env.example
 
-# PHP / Composer
+# Configuración local de Docker Compose
+docker-compose.override.yml
+
+# PHP
 **/vendor/
 .phpunit.cache/
 
@@ -26,9 +29,8 @@
 **/.angular/
 **/coverage/
 
-# Java / Maven / Spring Boot
+# Java / Maven
 **/target/
-**/.mvn/wrapper/maven-wrapper.jar
 
 # IDEs
 .vscode/
