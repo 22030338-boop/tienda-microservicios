@@ -131,8 +131,18 @@ services:
     restart: unless-stopped
     ports:
       - "8005:8005"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: carrito_db
+      DB_USER: carrito_user
+      DB_PASSWORD: ${CARRITO_DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - red-tienda
+
 
 volumes:
   postgres_data:
