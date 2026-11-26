@@ -76,7 +76,6 @@ services:
         condition: service_healthy
     networks:
       - red-tienda
-
   api-productos:
     build:
       context: ./api-productos
@@ -112,6 +111,16 @@ services:
     restart: unless-stopped
     ports:
       - "8004:8004"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: inventario_db
+      DB_USER: inventario_user
+      DB_PASSWORD: ${INVENTARIO_DB_PASSWORD}
+      DB_SSLMODE: disable
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - red-tienda
 
