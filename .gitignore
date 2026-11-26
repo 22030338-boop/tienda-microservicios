@@ -1,0 +1,49 @@
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+
+# PHP / Composer
+**/vendor/
+**/composer.lock
+.phpunit.cache/
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.mypy_cache/
+
+# Go
+**/bin/
+**/dist/
+
+# Node.js / Angular
+**/node_modules/
+**/dist/
+**/.angular/
+**/coverage/
+
+# Java / Maven / Spring Boot
+**/target/
+**/.mvn/wrapper/maven-wrapper.jar
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+*.swp
