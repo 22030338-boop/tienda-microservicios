@@ -47,6 +47,84 @@ services:
       timeout: 5s
       retries: 5
 
+  api-usuarios:
+    build:
+      context: ./api-usuarios
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      APP_NAME: API Usuarios
+      APP_ENV: local
+      APP_KEY: ${USUARIOS_APP_KEY}
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8001
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: usuarios_db
+      DB_USERNAME: usuarios_user
+      DB_PASSWORD: ${USUARIOS_DB_PASSWORD}
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: api-usuarios
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+
+  api-productos:
+    build:
+      context: ./api-productos
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      APP_NAME: API Productos
+      APP_ENV: local
+      APP_KEY: ${PRODUCTOS_APP_KEY}
+      APP_DEBUG: "false"
+      APP_URL: http://localhost:8002
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: productos_db
+      DB_USERNAME: productos_user
+      DB_PASSWORD: ${PRODUCTOS_DB_PASSWORD}
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+
+  api-inventario:
+    build:
+      context: ./api-inventario
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    networks:
+      - red-tienda
+
+  api-carrito:
+    build:
+      context: ./api-carrito
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8005:8005"
+    networks:
+      - red-tienda
+
 volumes:
   postgres_data:
   mongodb_data:
