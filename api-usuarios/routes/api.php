@@ -8,4 +8,7 @@ Route::prefix('usuarios')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::get('/perfil', [AuthController::class, 'perfil'])
         ->middleware('jwt');
+
+    Route::get('/{id}/existencia', [AuthController::class, 'existencia'])
+        ->whereNumber('id');
 });

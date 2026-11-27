@@ -78,6 +78,7 @@ services:
       QUEUE_CONNECTION: sync
       JWT_SECRET: ${JWT_SECRET}
       JWT_ISSUER: api-usuarios
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,6 +125,7 @@ services:
       DB_NAME: envios_db
       DB_USER: envios_user
       DB_PASSWORD: ${ENVIOS_DB_PASSWORD}
+      API_PEDIDOS_URL: http://api-pedidos:8006
     depends_on:
       postgres:
         condition: service_healthy
@@ -182,6 +184,8 @@ services:
       DB_NAME: pedidos_db
       DB_USER: pedidos_user
       DB_PASSWORD: ${PEDIDOS_DB_PASSWORD}
+      USUARIOS_API_URL: http://api-usuarios:8001
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -201,6 +205,8 @@ services:
       DB_NAME: pagos_db
       DB_USER: pagos_user
       DB_PASSWORD: ${PAGOS_DB_PASSWORD}
+      PEDIDOS_API_URL: http://api-pedidos:8006
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY}
     depends_on:
       postgres:
         condition: service_healthy
@@ -220,12 +226,29 @@ services:
       MONGO_DB: resenas_db
       MONGO_USER: resenas_user
       MONGO_PASSWORD: ${RESENAS_DB_PASSWORD}
+      USUARIOS_API_URL: http://api-usuarios:8001
+      PRODUCTOS_API_URL: http://api-productos:8002
+
     depends_on:
       mongodb:
         condition: service_healthy
+      api-usuarios:
+        condition: service_started
+      api-productos:
+        condition: service_started
     networks:
       - red-tienda
 
+  frontend-tienda:
+    build:
+      context: ./frontend-tienda
+      dockerfile: Dockerfile
+    container_name: frontend-tienda
+    restart: unless-stopped
+    ports:
+      - "4200:80"
+    networks:
+      - red-tienda
 
 volumes:
   postgres_data:

@@ -1,0 +1,226 @@
+<!-- AUTENTICACIÓN -->
+<main class="auth-layout" *ngIf="!autenticado">
+
+  <section class="auth-banner">
+    <div class="banner-content">
+      <span class="brand-mark">T</span>
+      <p class="eyebrow">TU TIENDA EN LÍNEA</p>
+      <h1>Todo lo que necesitas, en un solo lugar.</h1>
+      <p class="banner-description">
+        Descubre productos pensados para acompañarte todos los días.
+      </p>
+      <div class="banner-decoration">
+        <span>✦</span>
+        <span>✧</span>
+        <span>✦</span>
+      </div>
+    </div>
+    <div class="banner-footer">Una experiencia de compra sencilla.</div>
+  </section>
+
+  <section class="auth-panel">
+    <div class="auth-card">
+
+      <div class="mobile-brand">
+        <span class="brand-mark">T</span>
+        <span>Tienda Online</span>
+      </div>
+
+      <!-- LOGIN -->
+      <form *ngIf="vista === 'login'" (ngSubmit)="iniciarSesion()">
+
+        <span class="form-label">BIENVENIDO DE NUEVO</span>
+        <h2>Inicia sesión</h2>
+        <p class="form-description">
+          Ingresa tus datos para continuar.
+        </p>
+
+        <label for="login-email">Correo electrónico</label>
+        <input
+          id="login-email"
+          type="email"
+          name="email"
+          [(ngModel)]="email"
+          placeholder="ejemplo@correo.com"
+          autocomplete="email"
+          required
+        >
+
+        <label for="login-password">Contraseña</label>
+        <input
+          id="login-password"
+          type="password"
+          name="password"
+          [(ngModel)]="password"
+          placeholder="Ingresa tu contraseña"
+          autocomplete="current-password"
+          required
+        >
+
+        <p class="error" *ngIf="error">{{ error }}</p>
+
+        <button class="primary-button" type="submit" [disabled]="cargando">
+          {{ cargando ? 'Verificando datos...' : 'Iniciar sesión' }}
+        </button>
+
+        <div class="form-switch">
+          ¿Todavía no tienes una cuenta?
+          <a href="#" (click)="vista = 'registro'; error = ''; mensaje = ''; $event.preventDefault()">
+            Regístrate
+          </a>
+        </div>
+
+      </form>
+
+      <!-- REGISTRO -->
+      <form *ngIf="vista === 'registro'" (ngSubmit)="crearCuenta()">
+
+        <span class="form-label">ÚNETE A NOSOTROS</span>
+        <h2>Crea tu cuenta</h2>
+        <p class="form-description">
+          Regístrate para comenzar a comprar.
+        </p>
+
+        <label for="register-name">Nombre completo</label>
+        <input
+          id="register-name"
+          type="text"
+          name="nombre"
+          [(ngModel)]="nombre"
+          placeholder="Tu nombre"
+          autocomplete="name"
+          required
+        >
+
+        <label for="register-email">Correo electrónico</label>
+        <input
+          id="register-email"
+          type="email"
+          name="email"
+          [(ngModel)]="email"
+          placeholder="ejemplo@correo.com"
+          autocomplete="email"
+          required
+        >
+
+        <label for="register-password">Contraseña</label>
+        <input
+          id="register-password"
+          type="password"
+          name="password"
+          [(ngModel)]="password"
+          placeholder="Mínimo 8 caracteres"
+          minlength="8"
+          autocomplete="new-password"
+          required
+        >
+
+        <label for="register-confirm">Confirmar contraseña</label>
+        <input
+          id="register-confirm"
+          type="password"
+          name="confirmarPassword"
+          [(ngModel)]="confirmarPassword"
+          placeholder="Repite tu contraseña"
+          autocomplete="new-password"
+          required
+        >
+
+        <p class="success" *ngIf="mensaje">{{ mensaje }}</p>
+        <p class="error" *ngIf="error">{{ error }}</p>
+
+        <button class="primary-button" type="submit" [disabled]="cargando">
+          {{ cargando ? 'Creando cuenta...' : 'Crear mi cuenta' }}
+        </button>
+
+        <div class="form-switch">
+          ¿Ya tienes una cuenta?
+          <a href="#" (click)="vista = 'login'; error = ''; mensaje = ''; $event.preventDefault()">
+            Inicia sesión
+          </a>
+        </div>
+
+      </form>
+
+    </div>
+  </section>
+
+</main>
+
+<!-- TIENDA -->
+<div class="store-layout" *ngIf="autenticado">
+
+  <header class="navbar">
+    <a class="store-brand" href="#">
+      <span class="brand-mark">T</span>
+      <span>Tienda Online</span>
+    </a>
+
+    <div class="nav-actions">
+      <span class="nav-status">● Sesión activa</span>
+      <button class="logout-button" (click)="cerrarSesion()">
+        Cerrar sesión
+      </button>
+    </div>
+  </header>
+
+  <main class="store-content">
+
+    <section class="store-welcome">
+      <div>
+        <span class="form-label">NUESTRO CATÁLOGO</span>
+        <h1>Descubre nuestros productos.</h1>
+        <p>Encuentra lo que necesitas y conoce nuestra selección.</p>
+      </div>
+      <span class="welcome-icon">✦</span>
+    </section>
+
+    <div class="catalog-heading">
+      <div>
+        <h2>Productos disponibles</h2>
+        <p>Explora nuestra selección.</p>
+      </div>
+      <span class="product-count">{{ productos.length }} productos</span>
+    </div>
+
+    <div class="products-grid" *ngIf="productos.length > 0">
+
+      <article class="product-card" *ngFor="let producto of productos">
+
+        <div class="product-image">
+          <span>🛍️</span>
+        </div>
+
+        <div class="product-info">
+          <span class="product-category">
+            {{ producto.categoria || 'Producto' }}
+          </span>
+
+          <h3>{{ producto.nombre }}</h3>
+
+          <p>{{ producto.descripcion }}</p>
+
+          <div class="product-bottom">
+            <strong>
+              {{ producto.precio | currency:'MXN':'symbol':'1.2-2' }}
+            </strong>
+          </div>
+        </div>
+
+      </article>
+
+    </div>
+
+    <div class="empty-state" *ngIf="productos.length === 0">
+      <span>🛍️</span>
+      <h3>No hay productos disponibles</h3>
+      <p>Por el momento no encontramos productos en el catálogo.</p>
+    </div>
+
+  </main>
+
+  <footer class="store-footer">
+    Tienda Online · Todos los derechos reservados.
+  </footer>
+
+</div>

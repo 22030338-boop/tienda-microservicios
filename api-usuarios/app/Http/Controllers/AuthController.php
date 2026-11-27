@@ -118,4 +118,36 @@ class AuthController extends Controller
             'usuario' => $usuario,
         ]);
     }
+    public function existencia(Request $request, int $id)
+    {
+        $claveConfigurada = (string) config('services.internal.service_key');
+        $claveRecibida = (string) $request->header('X-Internal-Service-Key');
+
+        if (
+            $claveConfigurada === ''
+            || $claveRecibida === ''
+            || !hash_equals($claveConfigurada, $claveRecibida)
+        ) {
+            return response()->json([
+                'error' => 'No autorizado.',
+            ], 401);
+        }
+
+        $existe = DB::table('usuarios')
+            ->where('id', $id)
+            ->exists();
+
+        if (!$existe) {
+            return response()->json([
+                'error' => 'Usuario no encontrado.',
+                'usuario_id' => $id,
+            ], 404);
+        }
+
+        return response()->json([
+            'existe' => true,
+            'usuario_id' => $id,
+        ], 200);
+    }
+
 }

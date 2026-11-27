@@ -85,6 +85,29 @@ func main() {
 
 	r := gin.Default()
 
+
+	r.Use(func(c *gin.Context) {
+    c.Writer.Header().Set(
+        "Access-Control-Allow-Origin",
+        "http://localhost:4200",
+    )
+    c.Writer.Header().Set(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+    )
+    c.Writer.Header().Set(
+        "Access-Control-Allow-Headers",
+        "Origin, Content-Type, Authorization",
+    )
+
+    if c.Request.Method == http.MethodOptions {
+        c.AbortWithStatus(http.StatusNoContent)
+        return
+    }
+
+    c.Next()
+})
+
 	r.GET("/api/salud", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 		defer cancel()

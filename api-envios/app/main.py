@@ -1,4 +1,10 @@
+import json
+import os
+
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import date, timedelta
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, status
@@ -13,6 +19,12 @@ from app.schemas import (
 )
 
 
+API_PEDIDOS_URL = os.getenv(
+    "API_PEDIDOS_URL",
+    "http://api-pedidos:8006",
+)
+
+
 app = FastAPI(
     title="API de Envíos",
     description=(
@@ -21,6 +33,59 @@ app = FastAPI(
     ),
     version="1.0.0",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def consultar_pedido(pedido_id: int):
+    url = (
+        f"{API_PEDIDOS_URL.rstrip('/')}"
+        f"/api/pedidos/{pedido_id}"
+    )
+
+    request = Request(
+        url,
+        headers={"Accept": "application/json"},
+    )
+
+    try:
+        with urlopen(request, timeout=5) as response:
+            pedido = json.loads(
+                response.read().decode("utf-8")
+            )
+
+    except HTTPError as error:
+        if error.code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail="El pedido no existe",
+            )
+
+        raise HTTPException(
+            status_code=502,
+            detail="Error al consultar el pedido",
+        )
+
+    except (URLError, TimeoutError, json.JSONDecodeError):
+        raise HTTPException(
+            status_code=502,
+            detail="No se pudo comunicar con api-pedidos",
+        )
+
+    if not isinstance(pedido, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="Respuesta inválida de api-pedidos",
+        )
+
+    return pedido
+
 
 @app.get("/api/salud")
 def salud():
@@ -35,6 +100,7 @@ def salud():
             "estado": "activo",
             "base_datos": "conectada",
         }
+
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -60,6 +126,20 @@ def cotizar_envio(datos: CotizacionRequest):
     status_code=status.HTTP_201_CREATED,
 )
 def crear_envio(datos: CrearEnvioRequest):
+
+    # Validar que el pedido exista.
+    pedido = consultar_pedido(datos.pedido_id)
+
+    # Solo se permiten pedidos pagados.
+    if pedido.get("estado") != "pagado":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede generar un envío. "
+                "El pedido debe estar pagado."
+            ),
+        )
+
     cotizacion = calcular_tarifa(
         datos.zona,
         datos.peso_kg,
@@ -129,17 +209,19 @@ def crear_envio(datos: CrearEnvioRequest):
         raise HTTPException(
             status_code=500,
             detail="No se pudo registrar el envío",
-        )    
+        )
 
 
 @app.get("/api/envios/{envio_id}")
 def obtener_envio(envio_id: int):
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT * FROM envios WHERE id = %s",
                 (envio_id,),
             )
+
             envio = cursor.fetchone()
 
     if not envio:
@@ -153,6 +235,7 @@ def obtener_envio(envio_id: int):
 
 @app.get("/api/envios/pedido/{pedido_id}")
 def obtener_envio_por_pedido(pedido_id: int):
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -162,6 +245,7 @@ def obtener_envio_por_pedido(pedido_id: int):
                 """,
                 (pedido_id,),
             )
+
             envio = cursor.fetchone()
 
     if not envio:
@@ -175,6 +259,7 @@ def obtener_envio_por_pedido(pedido_id: int):
 
 @app.get("/api/envios/rastreo/{numero_seguimiento}")
 def rastrear_envio(numero_seguimiento: str):
+
     with get_connection() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -194,6 +279,7 @@ def rastrear_envio(numero_seguimiento: str):
                 """,
                 (numero_seguimiento,),
             )
+
             envio = cursor.fetchone()
 
     if not envio:
@@ -209,12 +295,11 @@ def rastrear_envio(numero_seguimiento: str):
 
 
 @app.put("/api/envios/{envio_id}/estado")
-
-@app.put("/api/envios/{envio_id}/estado")
 def actualizar_estado(
     envio_id: int,
     datos: ActualizarEstadoRequest,
 ):
+
     transiciones = {
         "pendiente": ["preparando", "cancelado"],
         "preparando": ["en_transito", "cancelado"],
@@ -225,6 +310,7 @@ def actualizar_estado(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
+
             cursor.execute(
                 """
                 SELECT estado FROM envios
@@ -233,6 +319,7 @@ def actualizar_estado(
                 """,
                 (envio_id,),
             )
+
             envio_actual = cursor.fetchone()
 
             if not envio_actual:
@@ -243,7 +330,12 @@ def actualizar_estado(
 
             estado_actual = envio_actual["estado"]
 
-            if datos.estado not in transiciones[estado_actual]:
+            estados_permitidos = transiciones.get(
+                estado_actual,
+                [],
+            )
+
+            if datos.estado not in estados_permitidos:
                 raise HTTPException(
                     status_code=409,
                     detail=(
