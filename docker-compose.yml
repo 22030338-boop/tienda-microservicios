@@ -143,6 +143,63 @@ services:
     networks:
       - red-tienda
 
+  api-pedidos:
+    build:
+      context: ./api-pedidos
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: pedidos_db
+      DB_USER: pedidos_user
+      DB_PASSWORD: ${PEDIDOS_DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+
+  api-pagos:
+    build:
+      context: ./api-pagos
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8007:8007"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: pagos_db
+      DB_USER: pagos_user
+      DB_PASSWORD: ${PAGOS_DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
+
+  api-resenas:
+    build:
+      context: ./api-resenas
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8008:8008"
+    environment:
+      MONGO_HOST: mongodb
+      MONGO_PORT: "27017"
+      MONGO_DB: resenas_db
+      MONGO_USER: resenas_user
+      MONGO_PASSWORD: ${RESENAS_DB_PASSWORD}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - red-tienda
+
 
 volumes:
   postgres_data:
