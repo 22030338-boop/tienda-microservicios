@@ -4,7 +4,7 @@ set -e
 mongosh --quiet --eval '
 db.getSiblingDB("resenas_db").createUser({
     user: "resenas_user",
-    pwd: "SECRET_RESENAS",
+    pwd: process.env.RESENAS_DB_PASSWORD,
     roles: [
         {
             role: "readWrite",

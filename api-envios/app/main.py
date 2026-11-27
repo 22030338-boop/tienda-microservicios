@@ -166,16 +166,9 @@ def crear_envio(datos: CrearEnvioRequest):
                         ciudad,
                         costo,
                         numero_seguimiento,
-                        estado,
-                        zona,
-                        peso_kg,
-                        dias_estimados,
-                        fecha_estimada_entrega
+                        estado
                     )
-                    VALUES (
-                        %s, %s, %s, %s, %s, %s,
-                        'pendiente', %s, %s, %s, %s
-                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, 'pendiente')
                     RETURNING *;
                     """,
                     (
@@ -185,10 +178,6 @@ def crear_envio(datos: CrearEnvioRequest):
                         datos.ciudad,
                         cotizacion["costo"],
                         numero_seguimiento,
-                        datos.zona,
-                        datos.peso_kg,
-                        cotizacion["dias_estimados"],
-                        fecha_estimada,
                     ),
                 )
 
@@ -196,7 +185,13 @@ def crear_envio(datos: CrearEnvioRequest):
 
         return {
             "mensaje": "Envío registrado correctamente",
-            "envio": envio,
+            "envio": {
+                **envio,
+                "zona": datos.zona,
+                "peso_kg": datos.peso_kg,
+                "dias_estimados": cotizacion["dias_estimados"],
+                "fecha_estimada_entrega": fecha_estimada.isoformat(),
+            },
         }
 
     except UniqueViolation:
@@ -271,9 +266,7 @@ def rastrear_envio(numero_seguimiento: str):
                     ciudad,
                     numero_seguimiento,
                     estado,
-                    creado_en,
-                    fecha_estimada_entrega,
-                    actualizado_en
+                    creado_en
                 FROM envios
                 WHERE numero_seguimiento = %s
                 """,
@@ -347,8 +340,7 @@ def actualizar_estado(
             cursor.execute(
                 """
                 UPDATE envios
-                SET estado = %s,
-                    actualizado_en = CURRENT_TIMESTAMP
+                SET estado = %s
                 WHERE id = %s
                 RETURNING *;
                 """,

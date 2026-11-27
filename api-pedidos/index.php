@@ -195,23 +195,34 @@ function confirmarInventario(int $reservaId): array {
 */
 
 function formatearPedido(array $fila, array $detalles): array {
+    $subtotal = 0;
+
+    $productos = array_map(function ($d) use (&$subtotal) {
+        $cantidad = (int) $d['cantidad'];
+        $precio = (float) $d['precio_unitario'];
+        $subtotal += $cantidad * $precio;
+
+        return [
+            'producto_id' => (int) $d['producto_id'],
+            'nombre' => $d['nombre_producto'],
+            'cantidad' => $cantidad,
+            'precio' => $precio,
+        ];
+    }, $detalles);
+
+    $subtotal = round($subtotal, 2);
+    $total = (float) $fila['total'];
+
     return [
         'id' => (int) $fila['id'],
         'usuario_id' => (int) $fila['usuario_id'],
-
-        'productos' => array_map(fn($d) => [
-            'producto_id' => (int) $d['producto_id'],
-            'nombre' => $d['nombre_producto'],
-            'cantidad' => (int) $d['cantidad'],
-            'precio' => (float) $d['precio_unitario'],
-        ], $detalles),
-
-        'direccion' => $fila['direccion'],
-        'subtotal' => (float) $fila['subtotal'],
-        'costo_envio' => (float) $fila['costo_envio'],
-        'total' => (float) $fila['total'],
+        'productos' => $productos,
+        'direccion' => null,
+        'subtotal' => $subtotal,
+        'costo_envio' => round(max(0, $total - $subtotal), 2),
+        'total' => $total,
         'estado' => $fila['estado'],
-        'guia' => $fila['guia'],
+        'guia' => null,
         'fecha' => $fila['fecha'],
     ];
 }
@@ -261,35 +272,58 @@ function pedidoCompleto(int $id): ?array {
 |--------------------------------------------------------------------------
 */
 
-function procesarReservas(int $pedidoId, string $accion): bool {
-    $pdo = db();
-
-    $st = $pdo->prepare(
-        "SELECT id, reserva_id
-         FROM pedido_reservas
-         WHERE pedido_id = ?
-           AND estado = 'pendiente'
-         ORDER BY id"
+function consultarReservasPedido(int $pedidoId): array {
+    $url = rtrim(
+        getenv('INVENTARIO_API_URL') ?: 'http://api-inventario:8004',
+        '/'
     );
 
-    $st->execute([$pedidoId]);
+    return solicitarApi(
+        "$url/api/inventario/reservas/pedido/$pedidoId"
+    );
+}
 
-    foreach ($st->fetchAll() as $reserva) {
-        $reservaId = (int) $reserva['reserva_id'];
+function procesarReservas(int $pedidoId, string $accion): bool {
+    if (!in_array($accion, ['confirmar', 'liberar'], true)) {
+        return false;
+    }
 
-        if ($accion === 'confirmar') {
-            $respuesta = confirmarInventario($reservaId);
-            $estadoFinal = 'confirmada';
-        } else {
-            $respuesta = liberarInventario($reservaId);
-            $estadoFinal = 'liberada';
+    $consulta = consultarReservasPedido($pedidoId);
+
+    if (
+        $consulta['codigo'] !== 200
+        || !is_array($consulta['datos']['reservas'] ?? null)
+    ) {
+        error_log("No se pudieron consultar las reservas del pedido $pedidoId");
+        return false;
+    }
+
+    foreach ($consulta['datos']['reservas'] as $reserva) {
+        $reservaId = (int) ($reserva['id'] ?? 0);
+        $estadoActual = $reserva['estado'] ?? null;
+
+        if ($reservaId < 1) {
+            return false;
         }
+
+        $estadoFinal = $accion === 'confirmar' ? 'confirmada' : 'liberada';
+
+        if ($estadoActual === $estadoFinal) {
+            continue;
+        }
+
+        if ($estadoActual !== 'pendiente') {
+            error_log("Estado inesperado en reserva $reservaId: " . (string) $estadoActual);
+            return false;
+        }
+
+        $respuesta = $accion === 'confirmar'
+            ? confirmarInventario($reservaId)
+            : liberarInventario($reservaId);
 
         $correcto = $respuesta['codigo'] >= 200
             && $respuesta['codigo'] < 300;
 
-        // Permite recuperar una operación que el inventario completó
-        // pero cuya respuesta se perdió.
         if (
             !$correcto
             && $respuesta['codigo'] === 409
@@ -299,21 +333,9 @@ function procesarReservas(int $pedidoId, string $accion): bool {
         }
 
         if (!$correcto) {
-            error_log(
-                "No se pudo $accion la reserva $reservaId del pedido $pedidoId"
-            );
-
+            error_log("No se pudo $accion la reserva $reservaId del pedido $pedidoId");
             return false;
         }
-
-        $actualizar = $pdo->prepare(
-            'UPDATE pedido_reservas SET estado = ? WHERE id = ?'
-        );
-
-        $actualizar->execute([
-            $estadoFinal,
-            $reserva['id'],
-        ]);
     }
 
     return true;
@@ -443,19 +465,12 @@ function crearPedido(): void {
         $pdo->beginTransaction();
 
         $st = $pdo->prepare(
-            "INSERT INTO pedidos
-                (usuario_id, estado, total, direccion, subtotal, costo_envio)
-             VALUES (?, 'pendiente', ?, ?, ?, ?)
+            "INSERT INTO pedidos (usuario_id, estado, total)
+             VALUES (?, 'pendiente', ?)
              RETURNING id"
         );
 
-        $st->execute([
-            $usuarioId,
-            $total,
-            $d['direccion'],
-            $subtotal,
-            $envio,
-        ]);
+        $st->execute([$usuarioId, $total]);
 
         $pedidoId = (int) $st->fetchColumn();
 
@@ -523,55 +538,7 @@ function crearPedido(): void {
             ]);
         }
 
-        $reservaId = (int) $respuestaReserva['datos']['reserva_id'];
 
-        try {
-            $guardar = $pdo->prepare(
-                "INSERT INTO pedido_reservas
-                    (pedido_id, producto_id, reserva_id, cantidad)
-                 VALUES (?, ?, ?, ?)"
-            );
-
-            $guardar->execute([
-                $pedidoId,
-                $item['producto_id'],
-                $reservaId,
-                $item['cantidad'],
-            ]);
-
-        } catch (PDOException $e) {
-            error_log('Error guardando reserva: ' . $e->getMessage());
-
-            // La reserva actual todavía no se registró localmente.
-            $liberarActual = liberarInventario($reservaId);
-
-            $actualLiberada = $liberarActual['codigo'] >= 200
-                && $liberarActual['codigo'] < 300;
-
-            if (
-                !$actualLiberada
-                && $liberarActual['codigo'] === 409
-                && ($liberarActual['datos']['estado'] ?? null) === 'liberada'
-            ) {
-                $actualLiberada = true;
-            }
-
-            $anterioresLiberadas = procesarReservas($pedidoId, 'liberar');
-
-            if ($actualLiberada && $anterioresLiberadas) {
-                $cancelar = $pdo->prepare(
-                    "UPDATE pedidos SET estado = 'cancelado' WHERE id = ?"
-                );
-
-                $cancelar->execute([$pedidoId]);
-            }
-
-            responder(502, [
-                'error' => 'No se pudo registrar la reserva del pedido',
-                'pedido_id' => $pedidoId,
-                'requiere_revision' => !$actualLiberada || !$anterioresLiberadas,
-            ]);
-        }
     }
 
     responder(201, pedidoCompleto($pedidoId));
@@ -847,15 +814,11 @@ function actualizarEstado(int $id): void {
             }
         }
 
-        $guia = !empty($d['guia']) ? (string) $d['guia'] : null;
-
         $actualizar = $pdo->prepare(
-            'UPDATE pedidos
-             SET estado = ?, guia = COALESCE(?, guia)
-             WHERE id = ?'
+            'UPDATE pedidos SET estado = ? WHERE id = ?'
         );
 
-        $actualizar->execute([$nuevoEstado, $guia, $id]);
+        $actualizar->execute([$nuevoEstado, $id]);
 
         $pdo->commit();
 

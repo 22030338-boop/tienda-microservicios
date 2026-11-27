@@ -158,6 +158,15 @@
 
     <div class="nav-actions">
       <span class="nav-status">● Sesión activa</span>
+
+      <button
+        class="cart-nav-button"
+        (click)="mostrarCarrito = !mostrarCarrito"
+      >
+        🛒 Mi carrito
+        <span class="cart-counter">{{ totalArticulos }}</span>
+      </button>
+
       <button class="logout-button" (click)="cerrarSesion()">
         Cerrar sesión
       </button>
@@ -175,49 +184,550 @@
       <span class="welcome-icon">✦</span>
     </section>
 
-    <div class="catalog-heading">
-      <div>
-        <h2>Productos disponibles</h2>
-        <p>Explora nuestra selección.</p>
+    <!-- CATÁLOGO -->
+    <ng-container *ngIf="!mostrarCarrito">
+
+      <div class="catalog-heading">
+        <div>
+          <h2>Productos disponibles</h2>
+          <p>Explora nuestra selección.</p>
+        </div>
+        <span class="product-count">{{ productos.length }} productos</span>
       </div>
-      <span class="product-count">{{ productos.length }} productos</span>
-    </div>
 
-    <div class="products-grid" *ngIf="productos.length > 0">
+      <div class="products-grid" *ngIf="productos.length > 0">
 
-      <article class="product-card" *ngFor="let producto of productos">
+        <article class="product-card" *ngFor="let producto of productos">
 
-        <div class="product-image">
-          <span>🛍️</span>
+          <div class="product-image">
+            <span>🛍️</span>
+          </div>
+
+          <div class="product-info">
+            <span class="product-category">
+              {{ producto.categoria || 'Producto' }}
+            </span>
+
+            <h3>{{ producto.nombre }}</h3>
+
+            <p>{{ producto.descripcion }}</p>
+
+            <button
+              class="details-button"
+              (click)="abrirDetalle(producto)"
+            >
+              Ver detalles y reseñas
+            </button>
+
+            <div class="stock-label" [class.stock-empty]="producto.stock === 0">
+              <span>●</span>
+              {{
+                producto.stock > 0
+                  ? producto.stock + ' unidades disponibles'
+                  : 'Agotado'
+              }}
+            </div>
+
+            <div class="product-bottom">
+              <strong>
+                {{ producto.precio | currency:'MXN':'symbol':'1.2-2' }}
+              </strong>
+
+              <button
+                class="add-cart-button"
+                (click)="agregarAlCarrito(producto)"
+                [disabled]="
+                  producto.stock === 0 ||
+                  cantidadEnCarrito(producto.id) >= producto.stock ||
+                  procesandoCarrito
+                "
+              >
+                {{
+                  producto.stock === 0
+                    ? 'Agotado'
+                    : cantidadEnCarrito(producto.id) >= producto.stock
+                      ? 'Máximo agregado'
+                      : 'Agregar 🛒'
+                }}
+              </button>
+            </div>
+
+            <small
+              class="in-cart-label"
+              *ngIf="cantidadEnCarrito(producto.id) > 0"
+            >
+              {{ cantidadEnCarrito(producto.id) }} en tu carrito
+            </small>
+          </div>
+
+        </article>
+
+      </div>
+
+      <div class="empty-state" *ngIf="productos.length === 0">
+        <span>🛍️</span>
+        <h3>No hay productos disponibles</h3>
+        <p>Por el momento no encontramos productos en el catálogo.</p>
+      </div>
+
+    </ng-container>
+
+    <!-- CARRITO -->
+    <section class="cart-section" *ngIf="mostrarCarrito">
+
+      <div class="catalog-heading">
+        <div>
+          <h2>Mi carrito de compras</h2>
+          <p>Revisa y administra tus productos.</p>
         </div>
 
-        <div class="product-info">
-          <span class="product-category">
-            {{ producto.categoria || 'Producto' }}
-          </span>
+        <button class="back-store-button" (click)="mostrarCarrito = false">
+          ← Seguir comprando
+        </button>
+      </div>
 
-          <h3>{{ producto.nombre }}</h3>
+      <p class="cart-error" *ngIf="errorCarrito">
+        {{ errorCarrito }}
+      </p>
 
-          <p>{{ producto.descripcion }}</p>
+      <div
+        class="cart-empty"
+        *ngIf="!carrito || carrito.productos.length === 0"
+      >
+        <span>🛒</span>
+        <h3>Tu carrito está vacío</h3>
+        <p>Agrega productos del catálogo para comenzar tu compra.</p>
+        <button class="primary-button" (click)="mostrarCarrito = false">
+          Explorar productos
+        </button>
+      </div>
 
-          <div class="product-bottom">
+      <ng-container *ngIf="carrito && carrito.productos.length > 0">
+
+        <div class="cart-list">
+
+          <article
+            class="cart-item"
+            *ngFor="let item of carrito.productos"
+          >
+
+            <div class="cart-item-icon">🛍️</div>
+
+            <div class="cart-item-info">
+              <h3>{{ nombreProducto(item.producto_id) }}</h3>
+              <p>
+                {{ item.precio_unitario | currency:'MXN':'symbol':'1.2-2' }}
+                por unidad
+              </p>
+              <strong>
+                {{ item.subtotal | currency:'MXN':'symbol':'1.2-2' }}
+              </strong>
+            </div>
+
+            <div class="cart-item-actions">
+              <div class="quantity-control">
+                <button
+                  (click)="cambiarCantidad(item, item.cantidad - 1)"
+                  [disabled]="item.cantidad <= 1 || procesandoCarrito"
+                >−</button>
+
+                <span>{{ item.cantidad }}</span>
+
+                <button
+                  (click)="cambiarCantidad(item, item.cantidad + 1)"
+                  [disabled]="
+                    item.cantidad >= stockProducto(item.producto_id) ||
+                    procesandoCarrito
+                  "
+                >+</button>
+              </div>
+
+              <button
+                class="remove-cart-button"
+                (click)="eliminarDelCarrito(item.producto_id)"
+                [disabled]="procesandoCarrito"
+              >
+                Eliminar
+              </button>
+            </div>
+
+          </article>
+
+        </div>
+
+
+        <!-- COTIZACIÓN DE ENVÍO -->
+        <section class="shipping-checkout">
+
+          <div class="shipping-heading">
+            <span class="form-label">FINALIZA TU COMPRA</span>
+            <h3>Información de envío</h3>
+            <p>Calcula cuánto costará enviar tus productos.</p>
+          </div>
+
+          <div class="shipping-form">
+
+            <div class="shipping-field">
+              <label for="shipping-zone">Zona de entrega</label>
+              <select
+                id="shipping-zone"
+                name="zonaEnvio"
+                [(ngModel)]="zonaEnvio"
+                (ngModelChange)="cotizacionEnvio = null; errorEnvio = ''"
+              >
+                <option value="local">Local - 1 día</option>
+                <option value="regional">Regional - 2 días</option>
+                <option value="nacional">Nacional - 5 días</option>
+              </select>
+            </div>
+
+            <div class="shipping-field">
+              <label for="package-weight">Peso del paquete (kg)</label>
+              <input
+                id="package-weight"
+                name="pesoPaquete"
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.1"
+                [(ngModel)]="pesoPaquete"
+                (ngModelChange)="cotizacionEnvio = null; errorEnvio = ''"
+              >
+            </div>
+
+            <button
+              type="button"
+              class="primary-button shipping-button"
+              (click)="cotizarEnvio()"
+              [disabled]="cotizandoEnvio"
+            >
+              {{ cotizandoEnvio ? 'Calculando...' : 'Calcular envío' }}
+            </button>
+
+          </div>
+
+          <p class="shipping-error" *ngIf="errorEnvio">
+            {{ errorEnvio }}
+          </p>
+
+          <div class="shipping-result" *ngIf="cotizacionEnvio">
+            <div>
+              <span>Costo de envío</span>
+              <strong>
+                {{ cotizacionEnvio.costo | currency:'MXN':'symbol':'1.2-2' }}
+              </strong>
+            </div>
+
+            <div>
+              <span>Entrega estimada</span>
+              <strong>
+                {{ cotizacionEnvio.dias_estimados }}
+                {{ cotizacionEnvio.dias_estimados === 1 ? 'día' : 'días' }}
+              </strong>
+            </div>
+
+            <small>
+              Zona {{ cotizacionEnvio.zona }} ·
+              {{ cotizacionEnvio.peso_kg }} kg
+            </small>
+          </div>
+
+          <div class="delivery-fields">
+            <h3>Datos de entrega</h3>
+
+            <label>
+              Nombre de quien recibe
+              <input
+                type="text"
+                name="destinatarioEnvio"
+                [(ngModel)]="destinatarioEnvio"
+                placeholder="Nombre completo"
+                [disabled]="procesandoCompra"
+              >
+            </label>
+
+            <label>
+              Dirección
+              <input
+                type="text"
+                name="direccionEnvio"
+                [(ngModel)]="direccionEnvio"
+                placeholder="Calle, número y colonia"
+                [disabled]="procesandoCompra"
+              >
+            </label>
+
+            <label>
+              Ciudad
+              <input
+                type="text"
+                name="ciudadEnvio"
+                [(ngModel)]="ciudadEnvio"
+                placeholder="Ciudad"
+                [disabled]="procesandoCompra"
+              >
+            </label>
+          </div>
+
+          <div class="payment-selection">
+            <h3>Método de pago</h3>
+            <p>Selecciona cómo te gustaría pagar.</p>
+
+            <div class="payment-options">
+              <label>
+                <input
+                  type="radio"
+                  name="metodoPago"
+                  value="tarjeta"
+                  [(ngModel)]="metodoPago"
+                >
+                Tarjeta
+              </label>
+
+              <label>
+                <input
+                  type="radio"
+                  name="metodoPago"
+                  value="paypal"
+                  [(ngModel)]="metodoPago"
+                >
+                PayPal
+              </label>
+
+              <label>
+                <input
+                  type="radio"
+                  name="metodoPago"
+                  value="transferencia"
+                  [(ngModel)]="metodoPago"
+                >
+                Transferencia
+              </label>
+
+              <label>
+                <input
+                  type="radio"
+                  name="metodoPago"
+                  value="oxxo"
+                  [(ngModel)]="metodoPago"
+                >
+                OXXO
+              </label>
+            </div>
+
+            <p class="payment-notice">
+              El pago es una simulación académica. No se realizará ningún
+              cargo bancario real.
+            </p>
+
+            <p class="shipping-error" *ngIf="errorCompra">
+              {{ errorCompra }}
+            </p>
+
+            <button
+              type="button"
+              class="primary-button"
+              (click)="procesarCompra()"
+              [disabled]="procesandoCompra || !cotizacionEnvio || !carrito?.productos?.length"
+            >
+              {{
+                procesandoCompra
+                  ? 'Procesando compra...'
+                  : pedidoPagadoPendienteEnvioId
+                    ? 'Reintentar registro del envío'
+                    : pedidoPendientePagoId
+                      ? 'Reintentar pago'
+                      : 'Confirmar compra'
+              }}
+            </button>
+          </div>
+
+        </section>
+
+        <div class="cart-summary">
+          <div>
+            <span>Artículos</span>
+            <strong>{{ totalArticulos }}</strong>
+          </div>
+
+          <div>
+            <span>Subtotal</span>
+            <strong>{{ totalCarrito | currency:'MXN':'symbol':'1.2-2' }}</strong>
+          </div>
+
+          <div *ngIf="cotizacionEnvio">
+            <span>Envío</span>
             <strong>
-              {{ producto.precio | currency:'MXN':'symbol':'1.2-2' }}
+              {{ cotizacionEnvio.costo | currency:'MXN':'symbol':'1.2-2' }}
             </strong>
           </div>
+
+          <div class="cart-total">
+            <span>Total</span>
+            <strong>
+              {{
+                (cotizacionEnvio ? totalConEnvio : totalCarrito)
+                  | currency:'MXN':'symbol':'1.2-2'
+              }}
+            </strong>
+          </div>
+
+          <button
+            class="clear-cart-button"
+            (click)="vaciarCarrito()"
+            [disabled]="procesandoCarrito"
+          >
+            Vaciar carrito
+          </button>
         </div>
 
-      </article>
+      </ng-container>
 
-    </div>
+      <div class="payment-notice" *ngIf="mensajeCompra">
+        <h3>¡Compra completada!</h3>
 
-    <div class="empty-state" *ngIf="productos.length === 0">
-      <span>🛍️</span>
-      <h3>No hay productos disponibles</h3>
-      <p>Por el momento no encontramos productos en el catálogo.</p>
-    </div>
+        <p>{{ mensajeCompra }}</p>
+
+        <p *ngIf="numeroSeguimiento">
+          <strong>Número de seguimiento:</strong>
+          {{ numeroSeguimiento }}
+        </p>
+
+        <p><strong>Estado del envío:</strong> Pendiente</p>
+
+        <p *ngIf="fechaEntregaEstimada">
+          <strong>Entrega estimada:</strong>
+          {{ fechaEntregaEstimada }}
+        </p>
+      </div>
+
+    </section>
 
   </main>
+
+
+  <!-- DETALLE DEL PRODUCTO Y RESEÑAS -->
+  <div
+    class="modal-overlay"
+    *ngIf="productoSeleccionado"
+    (click)="cerrarDetalle()"
+  >
+    <section
+      class="product-modal"
+      (click)="$event.stopPropagation()"
+    >
+      <button
+        class="modal-close"
+        type="button"
+        (click)="cerrarDetalle()"
+      >
+        ✕
+      </button>
+
+      <span class="form-label">DETALLE DEL PRODUCTO</span>
+      <h2>{{ productoSeleccionado.nombre }}</h2>
+
+      <p class="product-category">
+        {{ productoSeleccionado.categoria || 'Producto' }}
+      </p>
+
+      <p>{{ productoSeleccionado.descripcion }}</p>
+
+      <h3>
+        {{ productoSeleccionado.precio | currency:'MXN':'symbol':'1.2-2' }}
+      </h3>
+
+      <p>
+        Disponibilidad:
+        <strong>
+          {{ productoSeleccionado.stock > 0
+            ? productoSeleccionado.stock + ' unidades'
+            : 'Agotado' }}
+        </strong>
+      </p>
+
+      <hr>
+
+      <div class="reviews-heading">
+        <h3>Opiniones de clientes</h3>
+        <strong>
+          ★ {{ promedioResenas }} / 5
+        </strong>
+      </div>
+
+      <p>{{ totalResenas }} reseñas publicadas</p>
+
+      <p *ngIf="cargandoResenas">Cargando reseñas...</p>
+
+      <p class="error" *ngIf="errorResena">
+        {{ errorResena }}
+      </p>
+
+      <div class="review-list" *ngIf="!cargandoResenas">
+        <article class="review-item" *ngFor="let resena of resenas">
+          <div class="review-rating">
+            {{ '★'.repeat(resena.calificacion) }}{{ '☆'.repeat(5 - resena.calificacion) }}
+          </div>
+
+          <p>{{ resena.comentario }}</p>
+
+          <small>
+            Cliente #{{ resena.usuario_id }} ·
+            {{ resena.fecha | date:'dd/MM/yyyy' }}
+          </small>
+        </article>
+
+        <p *ngIf="resenas.length === 0">
+          Este producto todavía no tiene reseñas.
+          ¡Sé el primero en compartir tu opinión!
+        </p>
+      </div>
+
+      <hr>
+
+      <h3>Escribe tu reseña</h3>
+
+      <form (ngSubmit)="publicarResena()">
+        <label for="review-rating">Calificación</label>
+
+        <select
+          id="review-rating"
+          name="calificacionNueva"
+          [(ngModel)]="calificacionNueva"
+        >
+          <option [ngValue]="5">★★★★★ - Excelente</option>
+          <option [ngValue]="4">★★★★ - Muy bueno</option>
+          <option [ngValue]="3">★★★ - Bueno</option>
+          <option [ngValue]="2">★★ - Regular</option>
+          <option [ngValue]="1">★ - Malo</option>
+        </select>
+
+        <label for="review-comment">Comentario</label>
+
+        <textarea
+          id="review-comment"
+          name="comentarioNuevo"
+          [(ngModel)]="comentarioNuevo"
+          rows="4"
+          maxlength="1000"
+          placeholder="Cuéntanos qué te pareció este producto..."
+          required
+        ></textarea>
+
+        <p class="success" *ngIf="mensajeResena">
+          {{ mensajeResena }}
+        </p>
+
+        <button
+          class="primary-button"
+          type="submit"
+          [disabled]="enviandoResena"
+        >
+          {{ enviandoResena ? 'Publicando...' : 'Publicar reseña' }}
+        </button>
+      </form>
+    </section>
+  </div>
 
   <footer class="store-footer">
     Tienda Online · Todos los derechos reservados.

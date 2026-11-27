@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 
 const app = express();
 
-app.use((req, res, next) => {
+const cors = (req, res, next) => {
     res.header(
         'Access-Control-Allow-Origin',
         'http://localhost:4200'
@@ -24,8 +24,9 @@ app.use((req, res, next) => {
     }
 
     next();
-});
+};
 
+app.use(cors);
 app.use(express.json());
 
 const pool = new Pool({

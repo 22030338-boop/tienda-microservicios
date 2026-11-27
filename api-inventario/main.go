@@ -83,30 +83,34 @@ func main() {
 	}
 	defer db.Close()
 
-	r := gin.Default()
+	r := gin.New()
 
+	r.Use(gin.Logger())
+	r.Use(gin.Recovery())
 
 	r.Use(func(c *gin.Context) {
-    c.Writer.Header().Set(
-        "Access-Control-Allow-Origin",
-        "http://localhost:4200",
-    )
-    c.Writer.Header().Set(
-        "Access-Control-Allow-Methods",
-        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-    )
-    c.Writer.Header().Set(
-        "Access-Control-Allow-Headers",
-        "Origin, Content-Type, Authorization",
-    )
+		c.Writer.Header().Set(
+			"Access-Control-Allow-Origin",
+			"http://localhost:4200",
+		)
 
-    if c.Request.Method == http.MethodOptions {
-        c.AbortWithStatus(http.StatusNoContent)
-        return
-    }
+		c.Writer.Header().Set(
+			"Access-Control-Allow-Methods",
+			"GET, POST, PUT, PATCH, DELETE, OPTIONS",
+		)
 
-    c.Next()
-})
+		c.Writer.Header().Set(
+			"Access-Control-Allow-Headers",
+			"Origin, Content-Type, Authorization",
+		)
+
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+
+		c.Next()
+	})
 
 	r.GET("/api/salud", func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
@@ -121,8 +125,8 @@ func main() {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"servicio": "api-inventario",
-			"estado":   "activo",
+			"servicio":  "api-inventario",
+			"estado":    "activo",
 			"baseDatos": "conectada",
 		})
 	})
@@ -140,10 +144,67 @@ func main() {
 	r.POST("/api/inventario/reservas/:id/liberar", liberarReserva)
 
 	r.POST("/api/inventario/reservas/:id/confirmar", confirmarReserva)
+	r.GET("/api/inventario/reservas/pedido/:id", listarReservasPedido)
 
 	if err := r.Run(":8004"); err != nil {
 		log.Fatal("Error al iniciar el servidor: ", err)
 	}
+}
+
+func listarReservasPedido(c *gin.Context) {
+	pedidoID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || pedidoID < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de pedido inválido"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	filas, err := db.QueryContext(ctx,
+		`SELECT id, pedido_id, producto_id, cantidad, estado
+		 FROM reservas
+		 WHERE pedido_id = $1
+		 ORDER BY id`,
+		pedidoID,
+	)
+	if err != nil {
+		log.Println("Error al consultar reservas:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudieron consultar las reservas"})
+		return
+	}
+	defer filas.Close()
+
+	reservas := []gin.H{}
+
+	for filas.Next() {
+		var id, pedido, producto int64
+		var cantidad int
+		var estado string
+
+		if err := filas.Scan(&id, &pedido, &producto, &cantidad, &estado); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudieron leer las reservas"})
+			return
+		}
+
+		reservas = append(reservas, gin.H{
+			"id":          id,
+			"pedido_id":   pedido,
+			"producto_id": producto,
+			"cantidad":    cantidad,
+			"estado":      estado,
+		})
+	}
+
+	if err := filas.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al recorrer las reservas"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"pedido_id": pedidoID,
+		"reservas":  reservas,
+	})
 }
 
 func consultarInventario(c *gin.Context) {
@@ -301,13 +362,13 @@ func reservarInventario(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"mensaje":       "Stock reservado correctamente",
-		"reserva_id":    reservaID,
-		"pedido_id":     solicitud.PedidoID,
-		"producto_id":   id,
-		"cantidad":      solicitud.Cantidad,
+		"mensaje":        "Stock reservado correctamente",
+		"reserva_id":     reservaID,
+		"pedido_id":      solicitud.PedidoID,
+		"producto_id":    id,
+		"cantidad":       solicitud.Cantidad,
 		"stock_restante": stockRestante,
-		"estado":        "pendiente",
+		"estado":         "pendiente",
 	})
 }
 
@@ -362,7 +423,7 @@ func liberarReserva(c *gin.Context) {
 
 	if estado != "pendiente" {
 		c.JSON(http.StatusConflict, gin.H{
-			"error": "La reserva ya fue procesada",
+			"error":  "La reserva ya fue procesada",
 			"estado": estado,
 		})
 		return
@@ -485,7 +546,6 @@ func confirmarReserva(c *gin.Context) {
 		"estado":     "confirmada",
 	})
 }
-
 
 type SolicitudStock struct {
 	Existencias *int `json:"existencias" binding:"required,gte=0"`
@@ -630,4 +690,3 @@ func actualizarInventario(c *gin.Context) {
 		"existencias": existencias,
 	})
 }
-
