@@ -106,6 +106,12 @@ func main() {
 
 	r.GET("/api/inventario/:id", consultarInventario)
 
+	r.GET("/api/inventario", listarInventario)
+
+	r.POST("/api/inventario", registrarInventario)
+
+	r.PUT("/api/inventario/:id", actualizarInventario)
+
 	r.POST("/api/inventario/:id/reservar", reservarInventario)
 
 	r.POST("/api/inventario/reservas/:id/liberar", liberarReserva)
@@ -456,3 +462,149 @@ func confirmarReserva(c *gin.Context) {
 		"estado":     "confirmada",
 	})
 }
+
+
+type SolicitudStock struct {
+	Existencias *int `json:"existencias" binding:"required,gte=0"`
+}
+
+type SolicitudNuevoInventario struct {
+	ProductoID  int64 `json:"producto_id" binding:"required,gt=0"`
+	Existencias *int  `json:"existencias" binding:"required,gte=0"`
+}
+
+func listarInventario(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT producto_id, existencias, actualizado_en
+		 FROM inventario
+		 ORDER BY producto_id`)
+
+	if err != nil {
+		log.Println("Error al listar inventario:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo consultar el inventario"})
+		return
+	}
+	defer rows.Close()
+
+	inventario := []gin.H{}
+
+	for rows.Next() {
+		var productoID int64
+		var existencias int
+		var actualizado time.Time
+
+		if err := rows.Scan(&productoID, &existencias, &actualizado); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al leer inventario"})
+			return
+		}
+
+		inventario = append(inventario, gin.H{
+			"producto_id":    productoID,
+			"existencias":    existencias,
+			"actualizado_en": actualizado,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error al recorrer inventario"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"inventario": inventario})
+}
+
+func registrarInventario(c *gin.Context) {
+	var solicitud SolicitudNuevoInventario
+
+	if err := c.ShouldBindJSON(&solicitud); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Se requiere producto_id y existencias mayores o iguales a cero",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	var productoID int64
+
+	err := db.QueryRowContext(ctx,
+		`INSERT INTO inventario (producto_id, existencias)
+		 VALUES ($1, $2)
+		 ON CONFLICT (producto_id) DO NOTHING
+		 RETURNING producto_id`,
+		solicitud.ProductoID,
+		*solicitud.Existencias,
+	).Scan(&productoID)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusConflict, gin.H{"error": "El producto ya tiene un registro de inventario"})
+		return
+	}
+
+	if err != nil {
+		log.Println("Error al registrar inventario:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo registrar el inventario"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"mensaje":     "Inventario registrado correctamente",
+		"producto_id": productoID,
+		"existencias": *solicitud.Existencias,
+	})
+}
+
+func actualizarInventario(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+
+	if err != nil || id < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ID de producto inválido"})
+		return
+	}
+
+	var solicitud SolicitudStock
+
+	if err := c.ShouldBindJSON(&solicitud); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Se requiere existencias mayores o iguales a cero",
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	var existencias int
+
+	err = db.QueryRowContext(ctx,
+		`UPDATE inventario
+		 SET existencias = $1,
+		     actualizado_en = CURRENT_TIMESTAMP
+		 WHERE producto_id = $2
+		 RETURNING existencias`,
+		*solicitud.Existencias,
+		id,
+	).Scan(&existencias)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Producto no encontrado en el inventario"})
+		return
+	}
+
+	if err != nil {
+		log.Println("Error al actualizar inventario:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo actualizar el inventario"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"mensaje":     "Inventario actualizado correctamente",
+		"producto_id": id,
+		"existencias": existencias,
+	})
+}
+

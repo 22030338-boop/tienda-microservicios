@@ -15,6 +15,9 @@ const pool = new Pool({
     connectionTimeoutMillis: 5000
 });
 
+const API_PRODUCTOS_URL =
+    process.env.API_PRODUCTOS_URL || 'http://api-productos:8002';
+
 function esEnteroPositivo(valor) {
     return Number.isSafeInteger(Number(valor)) && Number(valor) > 0;
 }
@@ -58,6 +61,50 @@ async function obtenerProductos(carritoId, conexion = pool) {
     );
 
     return resultado.rows;
+}
+
+// Consultar el producto y su precio en API Productos.
+async function consultarProducto(productoId) {
+    try {
+        const respuesta = await fetch(
+            `${API_PRODUCTOS_URL}/api/productos/${productoId}`
+        );
+
+        if (respuesta.status === 404) {
+            const error = new Error('Producto no encontrado o inactivo');
+            error.statusCode = 404;
+            throw error;
+        }
+
+        if (!respuesta.ok) {
+            const error = new Error('API Productos no está disponible');
+            error.statusCode = 503;
+            throw error;
+        }
+
+        const datos = await respuesta.json();
+        const producto = datos.producto;
+
+        if (
+            !producto ||
+            !Number.isFinite(Number(producto.precio)) ||
+            Number(producto.precio) < 0
+        ) {
+            const error = new Error('Respuesta inválida de API Productos');
+            error.statusCode = 503;
+            throw error;
+        }
+
+        return producto;
+    } catch (error) {
+        if (error.statusCode) throw error;
+
+        const servicioError = new Error(
+            'No fue posible comunicarse con API Productos'
+        );
+        servicioError.statusCode = 503;
+        throw servicioError;
+    }
 }
 
 // Verificar el estado del servicio y PostgreSQL.
@@ -116,7 +163,7 @@ app.get('/api/carrito/:usuarioId', async (req, res) => {
 // Agregar un producto o incrementar su cantidad.
 app.post('/api/carrito/:usuarioId/agregar', async (req, res) => {
     const { usuarioId } = req.params;
-    const { producto_id, precio, cantidad } = req.body;
+    const { producto_id, cantidad } = req.body;
 
     if (!validarUsuarioId(usuarioId)) {
         return res.status(400).json({
@@ -124,24 +171,24 @@ app.post('/api/carrito/:usuarioId/agregar', async (req, res) => {
         });
     }
 
-    if (
-        !esEnteroPositivo(producto_id) ||
-        typeof precio !== 'number' ||
-        !Number.isFinite(precio) ||
-        precio < 0 ||
-        !esEnteroPositivo(cantidad)
-    ) {
+    if (!esEnteroPositivo(producto_id) || !esEnteroPositivo(cantidad)) {
         return res.status(400).json({
-            error: 'Datos del producto inválidos'
+            error: 'producto_id y cantidad deben ser enteros positivos'
         });
     }
 
-    const client = await pool.connect();
+    let client;
+    let transaccionIniciada = false;
 
     try {
-        await client.query('BEGIN');
+        // El precio se obtiene directamente del servicio de productos.
+        const producto = await consultarProducto(producto_id);
+        const precio = Number(producto.precio);
 
-        // Crear el carrito si no existe.
+        client = await pool.connect();
+        await client.query('BEGIN');
+        transaccionIniciada = true;
+
         const carrito = await client.query(
             `INSERT INTO carritos (usuario_id)
              VALUES ($1)
@@ -153,7 +200,6 @@ app.post('/api/carrito/:usuarioId/agregar', async (req, res) => {
 
         const carritoId = carrito.rows[0].id;
 
-        // Insertar el producto o incrementar su cantidad.
         await client.query(
             `INSERT INTO carrito_items
                 (carrito_id, producto_id, cantidad, precio_unitario)
@@ -165,24 +211,152 @@ app.post('/api/carrito/:usuarioId/agregar', async (req, res) => {
             [carritoId, producto_id, cantidad, precio]
         );
 
+        await client.query(
+            `UPDATE carritos
+             SET actualizado_en = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [carritoId]
+        );
+
         const productos = await obtenerProductos(carritoId, client);
 
         await client.query('COMMIT');
+        transaccionIniciada = false;
 
         res.status(201).json({
             mensaje: 'Producto agregado correctamente',
             carrito: formatearCarrito(usuarioId, productos)
         });
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (client && transaccionIniciada) {
+            await client.query('ROLLBACK');
+        }
 
         console.error('Error al agregar producto:', error.message);
 
-        res.status(500).json({
-            error: 'No fue posible agregar el producto al carrito'
+        res.status(error.statusCode || 500).json({
+            error: error.statusCode
+                ? error.message
+                : 'No fue posible agregar el producto al carrito'
         });
     } finally {
-        client.release();
+        if (client) client.release();
+    }
+});
+
+// Actualizar la cantidad de un producto.
+app.put('/api/carrito/:usuarioId/items/:productoId', async (req, res) => {
+    const { usuarioId, productoId } = req.params;
+    const { cantidad } = req.body;
+
+    if (!validarUsuarioId(usuarioId) || !esEnteroPositivo(productoId)) {
+        return res.status(400).json({
+            error: 'Los IDs deben ser enteros positivos'
+        });
+    }
+
+    if (!esEnteroPositivo(cantidad)) {
+        return res.status(400).json({
+            error: 'La cantidad debe ser un entero positivo'
+        });
+    }
+
+    try {
+        const resultado = await pool.query(
+            `UPDATE carrito_items
+             SET cantidad = $1
+             WHERE producto_id = $2
+               AND carrito_id = (
+                   SELECT id FROM carritos WHERE usuario_id = $3
+               )
+             RETURNING producto_id, cantidad, precio_unitario`,
+            [cantidad, productoId, usuarioId]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({
+                error: 'El producto no existe en el carrito'
+            });
+        }
+
+        await pool.query(
+            `UPDATE carritos
+             SET actualizado_en = CURRENT_TIMESTAMP
+             WHERE usuario_id = $1`,
+            [usuarioId]
+        );
+
+        const carrito = await pool.query(
+            'SELECT id FROM carritos WHERE usuario_id = $1',
+            [usuarioId]
+        );
+
+        const productos = await obtenerProductos(carrito.rows[0].id);
+
+        res.json({
+            mensaje: 'Cantidad actualizada correctamente',
+            carrito: formatearCarrito(usuarioId, productos)
+        });
+    } catch (error) {
+        console.error('Error al actualizar cantidad:', error.message);
+
+        res.status(500).json({
+            error: 'No fue posible actualizar la cantidad'
+        });
+    }
+});
+
+// Eliminar un producto individual del carrito.
+app.delete('/api/carrito/:usuarioId/items/:productoId', async (req, res) => {
+    const { usuarioId, productoId } = req.params;
+
+    if (!validarUsuarioId(usuarioId) || !esEnteroPositivo(productoId)) {
+        return res.status(400).json({
+            error: 'Los IDs deben ser enteros positivos'
+        });
+    }
+
+    try {
+        const resultado = await pool.query(
+            `DELETE FROM carrito_items
+             WHERE producto_id = $1
+               AND carrito_id = (
+                   SELECT id FROM carritos WHERE usuario_id = $2
+               )
+             RETURNING producto_id`,
+            [productoId, usuarioId]
+        );
+
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({
+                error: 'El producto no existe en el carrito'
+            });
+        }
+
+        await pool.query(
+            `UPDATE carritos
+             SET actualizado_en = CURRENT_TIMESTAMP
+             WHERE usuario_id = $1`,
+            [usuarioId]
+        );
+
+        const carrito = await pool.query(
+            'SELECT id FROM carritos WHERE usuario_id = $1',
+            [usuarioId]
+        );
+
+        const productos = await obtenerProductos(carrito.rows[0].id);
+
+        res.json({
+            mensaje: 'Producto eliminado correctamente',
+            carrito: formatearCarrito(usuarioId, productos)
+        });
+    } catch (error) {
+        console.error('Error al eliminar producto:', error.message);
+
+        res.status(500).json({
+            error: 'No fue posible eliminar el producto'
+        });
     }
 });
 
@@ -196,10 +370,13 @@ app.delete('/api/carrito/:usuarioId', async (req, res) => {
         });
     }
 
-    const client = await pool.connect();
+    let client;
+    let transaccionIniciada = false;
 
     try {
+        client = await pool.connect();
         await client.query('BEGIN');
+        transaccionIniciada = true;
 
         await client.query(
             `DELETE FROM carrito_items
@@ -217,6 +394,7 @@ app.delete('/api/carrito/:usuarioId', async (req, res) => {
         );
 
         await client.query('COMMIT');
+        transaccionIniciada = false;
 
         res.json({
             mensaje: 'Carrito vaciado correctamente',
@@ -225,7 +403,9 @@ app.delete('/api/carrito/:usuarioId', async (req, res) => {
             total: 0
         });
     } catch (error) {
-        await client.query('ROLLBACK');
+        if (client && transaccionIniciada) {
+            await client.query('ROLLBACK');
+        }
 
         console.error('Error al vaciar carrito:', error.message);
 
@@ -233,7 +413,7 @@ app.delete('/api/carrito/:usuarioId', async (req, res) => {
             error: 'No fue posible vaciar el carrito'
         });
     } finally {
-        client.release();
+        if (client) client.release();
     }
 });
 
