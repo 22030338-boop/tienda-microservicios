@@ -103,6 +103,25 @@ services:
         condition: service_healthy
     networks:
       - red-tienda
+  
+  api-envios:
+    build:
+      context: ./api-envios
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: envios_db
+      DB_USER: envios_user
+      DB_PASSWORD: ${ENVIOS_DB_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - red-tienda
 
   api-inventario:
     build:
